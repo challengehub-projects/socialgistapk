@@ -6,6 +6,21 @@ import React, {
   lazy
 } from "react";
 
+import {
+  registerPush,
+} from "./utils/registerPush";
+
+import {
+  initNotifications,
+  showNotification,
+} from "./utils/notifications";
+
+/* import initChatDB from "./utils/chatDB";
+
+ */
+/* import listenNotifications from "./utils/sendNotifications"; */
+
+
 import { supabase } from "./configs/supbase";
 
 import { Network } from "@capacitor/network";
@@ -18,7 +33,7 @@ import SignupPage from "./pages/signup";
 import HomeFeedPage from "./pages/feed";
 import TopNavbar from "./pages/navbar";
 
-import Messages from "./pages/messeges";
+import Messages from "./pages/messages";
 import ProfilePage from "./pages/profile";
 import ProfileModal from "./pages/profileModal";
 
@@ -42,6 +57,8 @@ export default function App() {
   const [selectedPost, setSelectedPost] =
     useState(null);
 
+
+
   // ================= SPLASH =================
 
   useEffect(() => {
@@ -54,6 +71,35 @@ export default function App() {
 
     return () => clearTimeout(timer);
 
+  }, []);
+
+
+  useEffect(() => {
+    const setup = async () => {
+      if (
+        Capacitor.isNativePlatform()
+      ) {
+        await StatusBar.setOverlaysWebView({
+          overlay: true,
+        });
+      }
+    };
+
+    setup();
+  }, []);
+
+  useEffect(() => {
+
+    Notification.requestPermission();
+
+  }, []);
+
+  /*   useEffect(() => {
+      initChatDB();
+    }, []); */
+
+  useEffect(async () => {
+    await initNotifications();
   }, []);
 
   // ================= AUTH =================
@@ -89,10 +135,18 @@ export default function App() {
     } =
       await supabase.auth.getSession();
 
+    console.log(session)
+
     setSession(session);
 
     if (session) {
       setPage("feed");
+
+
+      registerPush(
+        session.user.id
+      );
+      /* listenNotifications(); */
     }
 
     setLoading(false);
@@ -161,9 +215,9 @@ export default function App() {
 
   }, []);
 
-  // ================= OPEN COMMENTS =================
+  // ================= OPEN MESSAGES =================
 
-  const openComments = (post) => {
+  const openMessages = (post) => {
 
     setSelectedPost(post);
 
@@ -200,9 +254,26 @@ export default function App() {
   if (loading) {
 
     return (
+      /*  <div className="h-screen bg-white flex items-center justify-center">
+         <div className="flex items-center justify-center py-10">
+           <div className="w-12 h-12 border-[5px] border-purple-200 border-t-fuchsia-600 rounded-full animate-spin"></div>
+         </div>
+ 
+       </div> */
       <div className="h-screen bg-white flex items-center justify-center">
-        <div className="flex items-center justify-center py-10">
-          <div className="w-12 h-12 border-[5px] border-purple-200 border-t-fuchsia-600 rounded-full animate-spin"></div>
+
+        <div className="flex flex-col items-center">
+
+          <img
+            src="/icon.png"
+            alt="logo"
+            className="w-24 h-24 animate-pulse"
+          />
+
+          <h1 className="mt-4 text-2xl font-black text-purple-700">
+            SocialGist
+          </h1>
+
         </div>
 
       </div>
@@ -244,16 +315,15 @@ export default function App() {
 
     return (
       <Messages
-
         post={selectedPost}
-
         onBack={() =>
           setPage("feed")
         }
-
       />
     );
   }
+
+
 
 
   // ============ profile =============
@@ -285,13 +355,14 @@ export default function App() {
     <>
 
       <TopNavbar
+        onOpenMessages={openMessages}
         onNavigate={setPage}
       />
 
       <HomeFeedPage
 
-        onOpenComments={
-          openComments
+        onOpenMessages={
+          openMessages
         }
 
       />

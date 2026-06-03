@@ -24,11 +24,16 @@ import {
 } from "lucide-react";
 import { GiConsoleController } from "react-icons/gi";
 import ProfileModal from "./profileModal"
+import { sendNotification } from "../utils/sendNotifications";
+import { initNotifications, showNotification } from "../utils/notifications";
 
 
 export default function Feed({
-  onOpenComments,
+  onOpenMessages,
 }) {
+  const [me, setMe] =
+    useState(null);
+
   const [posts, setPosts] =
     useState([]);
 
@@ -79,6 +84,10 @@ export default function Feed({
       position: "bottom",
     });
   };
+
+
+
+
 
   // ================= IMAGE CACHE =================
 
@@ -457,6 +466,16 @@ export default function Feed({
     showLoader = false
   ) => {
     try {
+      const { datas, errorlogs } =
+        await supabase
+          .from("notifications")
+          .insert({
+            title: "Test",
+            body: "Hello World",
+            user_id: me.id,
+          });
+
+      console.log(datas, errorlogs);
       if (showLoader) {
         setLoading(true);
       }
@@ -568,6 +587,24 @@ export default function Feed({
     setLoading(false);
   };
 
+  useEffect(() => {
+
+    const getUser =
+      async () => {
+
+        const { data } =
+          await supabase.auth.getUser();
+
+        setMe(
+          data?.user || null
+        );
+
+      };
+
+    getUser();
+
+  }, []);
+
   // ================= START =================
 
   useEffect(() => {
@@ -587,129 +624,58 @@ export default function Feed({
 
   useEffect(() => {
 
-    // Create a realtime channel.
-    // The name "feed-realtime" is just an identifier.
-    // It can be any string.
     const channel = supabase
-
 
       .channel("feed-realtime")
 
-      // Listen for PostgreSQL changes
       .on(
         "postgres_changes",
 
         {
-          // Listen to ALL database events
-          // INSERT = new row
-          // UPDATE = existing row changed
-          // DELETE = row removed
           event: "*",
-
-          // Database schema
           schema: "public",
-
-          // Table to watch
           table: "posts",
         },
 
-        // This callback runs every time
-        // something changes in the posts table
         async (payload) => {
 
           console.log(
-            "🔥 REALTIME PAYLOAD:",
+            "🔥 FEED UPDATE:",
             payload
           );
 
-          /*
-            Example payload for UPDATE:
-      
-            {
-              eventType: "UPDATE",
-      
-              old: {
-                id: "123",
-                likes_count: 5
-              },
-      
-              new: {
-                id: "123",
-                likes_count: 6
-              }
-            }
-          */
-
-          // ====================================
-          // INSERT
-          // ====================================
+          // =========================
+          // IGNORE NEW POSTS
+          // =========================
 
           if (
             payload.eventType ===
             "INSERT"
           ) {
 
-            console.log(
-              "➕ NEW POST:",
-              payload.new
-            );
-
-            // Add new post to top of feed
-
-            setPosts((prev) => [
-
-              payload.new,
-
-              ...prev,
-
-            ]);
-
             return;
+
           }
 
-          // ====================================
-          // UPDATE
-          // ====================================
+          // =========================
+          // POST UPDATED
+          // =========================
 
           if (
             payload.eventType ===
             "UPDATE"
           ) {
 
-            console.log(
-              "✏️ POST UPDATED:",
-              payload.new
-            );
-
-            /*
-              Example:
-      
-              Before:
-              likes_count = 5
-      
-              Another user likes:
-      
-              After:
-              likes_count = 6
-            */
-
             setPosts((prev) =>
 
               prev.map((post) =>
-
-                // Find the post that changed
 
                 post.id ===
                   payload.new.id
 
                   ? {
 
-                    // Keep old data
-
                     ...post,
-
-                    // Replace with latest
-                    // values from database
 
                     ...payload.new,
 
@@ -721,22 +687,123 @@ export default function Feed({
 
             );
 
+            // =========================
+            // LIKE NOTIFICATION
+            // =========================
+
+            const oldLikes =
+              payload.old
+                ?.likes_count || 0;
+
+            const newLikes =
+              payload.new
+                ?.likes_count || 0;
+
+
+
+
+            if (
+
+              newLikes > oldLikes &&
+
+              payload.new.user_id ===
+              me?.id
+            ) {
+
+              await showNotification(
+                "❤️ New Like",
+                "Someone liked your post"
+              );
+
+              await sendNotification({
+
+                title:
+                  "❤️ New Like",
+
+                body:
+                  "Someone liked your post",
+
+              });
+
+              console.log("SOMEONE LIKED YOUR POST");
+
+            }
+
+            else {
+
+         /*      await showNotification(
+                "❤️ Unlike Like Message",
+                "Someone unliked your post"
+              );
+
+              await sendNotification({
+
+                title:
+                  "❤️ Unlike Like Message",
+
+                body:
+                  "Someone unliked your post",
+
+              });
+ */
+              console.log("LIKE COUNT CHANGED:", {
+                old: oldLikes,
+                new: newLikes
+              });
+
+
+            }
+
+            // =========================
+            // SHARE NOTIFICATION
+            // =========================
+
+            const oldShares =
+              payload.old
+                ?.shares_count || 0;
+
+            const newShares =
+              payload.new
+                ?.shares_count || 0;
+
+            if (
+
+              newShares > oldShares &&
+
+              payload.new.user_id ===
+              me?.id
+
+            ) {
+
+              await showNotification(
+                "New Share",
+                "Someone Share your post"
+              );
+
+              await sendNotification({
+
+                title:
+                  "📤 New Share",
+
+                body:
+                  "Someone shared your post",
+
+              });
+
+            }
+
             return;
+
           }
 
-          // ====================================
-          // DELETE
-          // ====================================
+          // =========================
+          // DELETE POST
+          // =========================
 
           if (
             payload.eventType ===
             "DELETE"
           ) {
-
-            console.log(
-              "🗑️ POST DELETED:",
-              payload.old
-            );
 
             setPosts((prev) =>
 
@@ -750,37 +817,22 @@ export default function Feed({
               )
 
             );
+
           }
+
         }
       )
 
-      // Subscribe to channel
       .subscribe((status) => {
 
         console.log(
-          "📡 CHANNEL STATUS:",
+          "📡 Feed Status:",
           status
         );
 
-        /*
-          Possible values:
-      
-          SUBSCRIBED
-          CHANNEL_ERROR
-          TIMED_OUT
-          CLOSED
-        */
       });
 
-
-    // Cleanup when component unmounts
-
     return () => {
-
-
-      console.log(
-        "❌ REMOVING CHANNEL"
-      );
 
       supabase.removeChannel(
         channel
@@ -788,11 +840,7 @@ export default function Feed({
 
     };
 
-  }, []);
-
-
-
-  // ================= NETWORK =================
+  }, [me?.id]);
 
   // ================= NETWORK =================
 
@@ -918,6 +966,25 @@ export default function Feed({
         }
 
         return post;
+      });
+
+      //APP NOTIFICATION
+
+      await showNotification(
+        "Message",
+        "You liked a post!"
+      );
+
+      // BROWSER NOTIFICATION
+
+      await sendNotification({
+
+        title:
+          "Message",
+
+        body:
+          "You Liked a post!",
+
       });
 
       setPosts(updatedPosts);
@@ -1213,8 +1280,6 @@ ${post.likes_count || 0} likes
 
 
 
-          console.log(post)
-
           return (
             <div
               key={post.id}
@@ -1311,7 +1376,7 @@ ${post.likes_count || 0} likes
                             fontSize:
                               layer.fontSize,
                             textShadow:
-                              "0 3px 15px rgba(0,0,0,0.6)",
+                              "none",
                           }}
                         >
                           {layer.text}
@@ -1321,46 +1386,57 @@ ${post.likes_count || 0} likes
                   </div>
                 )
               }
-
-              {/* TEXT POST */}
-
               {
                 !post.image &&
                 parsed?.background && (
                   <div
-                    className="relative min-h-[280px] flex items-center justify-center overflow-hidden"
+                    className="relative min-h-[280px] flex items-center justify-center overflow-hidden p-8"
                     style={{
-                      background:
-                        parsed.background,
+                      background: parsed.background,
                     }}
                   >
-                    {parsed?.layers?.map(
-                      (layer) => (
-                        <div
-                          key={
-                            layer.id
-                          }
-                          className="absolute font-black"
-                          style={{
-                            left:
-                              layer.x,
-                            top: layer.y,
-                            color:
-                              layer.color,
-                            fontSize:
-                              layer.fontSize,
-                            textShadow:
-                              "0 3px 15px rgba(0,0,0,0.6)",
-                          }}
-                        >
-                          {layer.text}
-                        </div>
+                    {parsed?.text ? (
+                      <div
+                        className="
+            text-white
+            text-center
+            font-black
+            text-3xl
+            sm:text-4xl
+            whitespace-pre-wrap
+            break-words
+            w-full
+          "
+                        style={{
+                          textShadow:
+                            "none",
+                        }}
+                      >
+                        {parsed.text}
+                      </div>
+                    ) : (
+                      parsed?.layers?.map(
+                        (layer) => (
+                          <div
+                            key={layer.id}
+                            className="absolute font-black"
+                            style={{
+                              left: layer.x,
+                              top: layer.y,
+                              color: layer.color,
+                              fontSize: layer.fontSize,
+                              textShadow:
+                                "none",
+                            }}
+                          >
+                            {layer.text}
+                          </div>
+                        )
                       )
                     )}
                   </div>
                 )
               }
-
               {/* ACTIONS */}
 
               <div className="px-4 py-3">
@@ -1428,11 +1504,11 @@ ${post.likes_count || 0} likes
                     </span>
                   </button>
 
-                  {/* COMMENT */}
+                  {/* MESSAGE */}
 
                   <button
                     onClick={() =>
-                      onOpenComments(
+                      onOpenMessages(
                         post
                       )
                     }
